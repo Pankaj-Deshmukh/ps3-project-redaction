@@ -1,0 +1,7 @@
+{
+  "type": "module",
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^1.1.1"
+  }
+}
