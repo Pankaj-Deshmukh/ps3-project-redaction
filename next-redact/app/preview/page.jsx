@@ -8,39 +8,60 @@ import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 
 const highlightRedactedText = (text = '', patterns = []) => {
-    if (!text || !patterns.length) {
+  if (!text || !patterns.length) {
       return [{ text: text || '', highlighted: false }];
-    }
-
-    let segments = [{ text, highlighted: false }];
-
-    patterns.forEach(pattern => {
-      if (!pattern) return;
-
+  }
+  let segments = [{ text, highlighted: false }];
+  patterns.forEach(pattern => {
+      if (!pattern || typeof pattern !== 'string') return;
       segments = segments.flatMap(segment => {
-        if (!segment.highlighted && segment.text) {
-          try {
-            const regex = new RegExp(`(${pattern})`, 'gi');
-            const parts = segment.text.split(regex);
-            return parts.map((part, index) => ({
-              text: part || '',
-              highlighted: index % 2 === 1
-            }));
-          } catch (error) {
-            console.error('Error processing pattern:', pattern, error);
-            return [segment];
+          if (segment.highlighted || !segment.text) {
+              return [segment];
           }
-        }
-        return [segment];
-      });
-    });
+          try {
+              // Convert pattern to lowercase and escape special characters
+              const escapedPattern = pattern.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const regex = new RegExp(`\\b${escapedPattern}\\b`, 'gi');
+              const parts = [];
+              let lastIndex = 0;
+              let match;
 
-    return segments;
+              while ((match = regex.exec(segment.text)) !== null) {
+                  // Add non-matching text before this match
+                  if (match.index > lastIndex) {
+                      parts.push({
+                          text: segment.text.slice(lastIndex, match.index),
+                          highlighted: false
+                      });
+                  }
+                  // Add the matched text
+                  parts.push({
+                      text: match[0],
+                      highlighted: true
+                  });
+                  lastIndex = regex.lastIndex;
+              }
+              // Add any remaining text after the last match
+              if (lastIndex < segment.text.length) {
+                  parts.push({
+                      text: segment.text.slice(lastIndex),
+                      highlighted: false
+                  });
+              }
+
+              return parts.length ? parts : [segment];
+          } catch (error) {
+              console.error('Error processing pattern:', pattern, error);
+              return [segment];
+          }
+      });
+  });
+
+  return segments;
 };
 
 const DocumentRedactor = () => {
   const [pages, setPages] = useState([]);
-  const [redactableWords, setRedactableWords] = useState({});
   const [redactedPages, setRedactedPages] = useState([]);
   const [selectedPage, setSelectedPage] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -80,9 +101,10 @@ const DocumentRedactor = () => {
         formData.append('file', blob, 'uploaded-file.pdf');
         const res = await axios.post("http://127.0.0.1:5000/api/PDFpreprocess", formData);
         setPages(res.data.pages);
-        setRedactableWords(res.data.entites);
-        setWords(Object.values(res.data.entites).join(' ').split(' ').map(word => word.trim().toLowerCase()));
-        setPageLoading(false);
+        setWords([...new Set(Object.values(res.data.entites).join(' ').split(' ').map(word => word.trim().toLowerCase()))]);
+        setTimeout(() => {
+          setPageLoading(false);
+        }, 2000);
       }
       catch(err){
         console.error(err);
@@ -97,52 +119,38 @@ const DocumentRedactor = () => {
     }
   }, [pages]);
 
-  const getAllPatterns = () => {
-    const safeDefaultPatterns = Object.values(redactableWords)
-      .join(' ')
-      .split(' ')
-      .map(word => word.trim().toLowerCase());
-
-    const safeCustomPatterns = customRedactions
-      .filter(Boolean)
-      .map(term => term ? term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '')
-      .filter(Boolean);
-
-    return [...safeDefaultPatterns, ...safeCustomPatterns];
-  };
-
   const handleRedaction = async () => {
     try {
-      setIsLoading(true);
-      setError('');
+        setIsLoading(true);
+        setError('');
 
-      const patterns = getAllPatterns();
+        const newRedactedPages = pages.map(page => {
+            if (!page) return '';
 
-      const newRedactedPages = pages.map(page => {
-        if (!page) return '';
+            let processedText = page;
+            words.forEach(pattern => {
+                if (!pattern) return;
+                try {
+                    const escapedPattern = pattern.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const regex = new RegExp(`\\b${escapedPattern}\\b|${escapedPattern}\\b${escapedPattern}`, 'gi');
 
-        let processedText = page;
-        patterns.forEach(pattern => {
-          if (!pattern) return;
-          try {
-            const regex = new RegExp(pattern, 'gi');
-            processedText = processedText.replace(regex, '[REDACTED]');
-          } catch (error) {
-            console.error('Error applying pattern:', pattern, error);
-          }
+                    processedText = processedText.replace(regex, match => '█'.repeat(match.length));
+                } catch (error) {
+                    console.error('Error applying pattern:', pattern, error);
+                }
+            });
+            return processedText;
         });
-        return processedText;
-      });
 
-      setRedactedPages(newRedactedPages);
-      setShowRedacted(true);
+        setRedactedPages(newRedactedPages);
+        setShowRedacted(true);
     } catch (err) {
-      setError('Error processing document. Please try again.');
-      console.error('Redaction error:', err);
+        setError('Error processing document. Please try again.');
+        console.error('Redaction error:', err);
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
-  };
+};
 
   const addCustomRedaction = () => {
     if (searchTerm.trim()) {
@@ -167,7 +175,7 @@ const DocumentRedactor = () => {
     }
 
     try {
-      const segments = highlightRedactedText(currentPage, getAllPatterns());
+      const segments = highlightRedactedText(currentPage, words);
 
       return (
         <div>
@@ -205,7 +213,9 @@ const DocumentRedactor = () => {
     }
     setDownloading(true);
   };
-
+  if(pageLoading){
+    return <div className='flex h-screen w-screen justify-center items-center'><div className="loader"></div></div>
+  }
   return (
     <div className="w-full h-screen max-h-screen flex flex-col p-4 bg-gray-50">
       {downloading && <Download file={redactedFile} setDownloading={setDownloading} />}
@@ -227,9 +237,9 @@ const DocumentRedactor = () => {
           </Button>
         </div>
 
-        {customRedactions.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-4">
-            {customRedactions.map((term, index) => (
+        {words.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-4 h-8 overflow-hidden transition-all duration-500 hover:h-fit">
+            {words.map((term, index) => (
               <div
                 key={index}
                 className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full flex items-center gap-2"
