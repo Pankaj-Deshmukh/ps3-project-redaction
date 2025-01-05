@@ -2,14 +2,20 @@ import os
 from flask import Flask, request, jsonify, send_file
 import fitz  # PyMuPDF
 from flask_cors import CORS
+from transformers import AutoTokenizer, AutoModelForTokenClassification
 from io import BytesIO
+import torch
 import pdfplumber
 import tempfile
-import requests
-import json
-import ast
+
 app = Flask(__name__)
 CORS(app)
+
+# Load Hugging Face model
+tokeRizer = AutoTokenizer.from_pretrained(
+    "iiiorg/piiranha-v1-detect-personal-information")
+model = AutoModelForTokenClassification.from_pretrained(
+    "iiiorg/piiranha-v1-detect-personal-information")
 
 
 def combine_entity_tokens(entities):
@@ -230,22 +236,14 @@ def process_pdf():
     pdf_path = "./Uploads/input_pdf.pdf"
     file.save(pdf_path)
     pages, text = extract_text_from_pdf(pdf_path)
-    url = "http://127.0.0.1:11434/api/generate"
-
-    payload = json.dumps({
-        "model": "me/llama3.2-python:latest",
-        "prompt": text,
-        "stream": False,
-        "max_tokens": 1028
-    })
-    headers = {
-        'Content-Type': 'application/json'
-    }
-    response = requests.request("POST", url, headers=headers, data=payload)
-    array_data = ast.literal_eval(response.json()['response'])
-
+    words_dict = extract_word_bboxes_and_store_in_dict(pdf_path)
+    entites = detect_personal_information(text)
+    combined = combine_entity_tokens(entites)
+    combined_list = [item for value in combined.values()
+                     for item in value.split()]
+    print(combined_list)
     return jsonify({
-        "entites": array_data,
+        "entites": combined_list,
         "pages": pages
     })
 
@@ -256,6 +254,25 @@ def process_pdf():
 
     # Return the redacted PDF file as response
     # return send_file(output_pdf_path, as_attachment=True, download_name="redacted_doc.pdf")
+
+
+def split_text(text, max_length=512):
+    words = text.split()
+    for i in range(0, len(words), max_length):
+        yield " ".join(words[i:i + max_length])
+
+
+def redact_text_with_predictions(text, labels):
+    words = text.split()
+    redacted_text = []
+
+    for word, label in zip(words, labels):
+        if label == 'PERSONAL_INFORMATION':  # Adjust the label as needed
+            redacted_text.append("[REDACTED]")
+        else:
+            redacted_text.append(word)
+
+    return " ".join(redacted_text)
 
 
 if __name__ == '__main__':
