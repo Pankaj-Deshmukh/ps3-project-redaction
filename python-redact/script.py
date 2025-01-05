@@ -216,9 +216,10 @@ def process_pdf():
     words_dict = extract_word_bboxes_and_store_in_dict(pdf_path)
     entites = detect_personal_information(text)
     combined = combine_entity_tokens(entites)
-    print(combined)
+    combined_list =  [item for value in combined.values() for item in value.split()]
+    print(combined_list)
     return jsonify({
-       "entites":combined,
+       "entites":combined_list,
        "pages":pages
     })
 

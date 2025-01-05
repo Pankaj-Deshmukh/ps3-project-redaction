@@ -101,7 +101,7 @@ const DocumentRedactor = () => {
         formData.append('file', blob, 'uploaded-file.pdf');
         const res = await axios.post("http://127.0.0.1:5000/api/PDFpreprocess", formData);
         setPages(res.data.pages);
-        setWords([...new Set(Object.values(res.data.entites).join(' ').split(' ').map(word => word.trim().toLowerCase()))]);
+        setWords([...new Set(res.data.entites)]);
         setTimeout(() => {
           setPageLoading(false);
         }, 2000);
@@ -280,12 +280,6 @@ const DocumentRedactor = () => {
                 {renderPage()}
               </div>
             </div>
-
-            {error && (
-              <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded">
-                {error}
-              </div>
-            )}
 
             <div className="flex justify-end gap-4">
               <Button
