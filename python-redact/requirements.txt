@@ -1,3 +1,4 @@
+python3 -m venv myenv
+source myenv/bin/activate
+pip install flask flask-cors spacy pdfplumber PyMuPDF Pillow opencv-python pytesseract numpy
 python -m spacy download en_core_web_sm
-pip install spacy
-
